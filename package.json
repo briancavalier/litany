@@ -1,0 +1,21 @@
+{
+  "name": "tsql",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "author": "Brian Cavalier <brian@briancavalier.com>",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c"
+  },
+  "devDependencies": {
+    "rollup": "^0.64.1",
+    "rollup-plugin-node-resolve": "^3.3.0",
+    "rollup-plugin-typescript2": "^0.16.1",
+    "ts-node": "^7.0.1",
+    "typescript": "^3.0.1"
+  }
+}
