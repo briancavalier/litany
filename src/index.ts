@@ -1,27 +1,29 @@
-type Uncompiled = 'uncompiled'
-type Compiled = 'compiled'
+export type Raw = 'raw'
+export type Prepared = 'prepared'
 
-// An SqlFragment represents an SQL query or part of a query,
-// with associated parameter values.  It is in either an Uncompiled
-// or Compiled state, which determines what is allowed to be done
-// with it.  E.g. a Dialect only accepts Compiled SqlFragments
-export class SqlFragment<S> {
+// A Fragment represents a fragment of an expression in some
+// language L, in some state S (such as compiled or uncompiled),
+// with parameters V.
+export class Fragment<L, S, V> {
+  _language!: L
   _state!: S
-  constructor (public readonly strings: ReadonlyArray<string>, public readonly values: ReadonlyArray<unknown>) {}
+  constructor (public readonly strings: ReadonlyArray<string>, public readonly values: V) {}
 }
 
-// A Dialect transforms a compiled SqlFragment for a particular db library/driver/engine
-export type Dialect<P> = (s: SqlFragment<Compiled>) => P
+// Build a template tag for a language L.  The template tag
+// can then be used to build Fragments in L:
+// const sql = t<SQL>()
+// const sqlFragment = sql`SELECT * FROM users`
+export const t = <L> (): (<V extends any[]> (strings: TemplateStringsArray, ...values: V) => Fragment<L, Raw, V>) =>
+  (strings, ...values) =>
+    new Fragment(strings, values)
 
-// SQL Tagged template for building SqlFragments by
-// writing literal SQL
-export const sql = (strings: TemplateStringsArray, ...values: unknown[]): SqlFragment<Uncompiled> =>
-  new SqlFragment(strings, values)
-
-// Flatten an SqlFragment whose values may contain nested
-// SqlFragments.  Internal mutation for speed, but they don't
-// escape, so it's safe.
-export const compile = <S> (s: SqlFragment<S>): SqlFragment<Compiled> => {
+// Flatten a Fragment whose values may contain nested
+// Fragments of the same language.  Internal mutation for speed,
+// but they don't escape, so it's safe.
+// TODO: How to preserve type info so we don't end up with
+// unknown parameters?
+export const compile = <L, V extends any[]> (s: Fragment<L, Raw | Prepared, V>): Fragment<L, Prepared, ReadonlyArray<unknown>> => {
   const strings = s.strings.slice()
   const values = s.values.slice()
 
@@ -29,7 +31,7 @@ export const compile = <S> (s: SqlFragment<S>): SqlFragment<Compiled> => {
   let sindex = 0
   for (let i = 0; i < s.values.length; i++) {
     const v = s.values[i]
-    if (v instanceof SqlFragment) {
+    if (v instanceof Fragment) {
       const cv = compile(v)
 
       spliceTemplateStrings(sindex, cv.strings, strings)
@@ -43,36 +45,44 @@ export const compile = <S> (s: SqlFragment<S>): SqlFragment<Compiled> => {
     }
   }
 
-  return new SqlFragment<Compiled>(strings, values)
+  return new Fragment<L, Prepared, ReadonlyArray<unknown>>(strings, values)
 }
 
 // Splice (mutably) src array of template strings into dst,
 // joining the strings at the start and end splice points
 const spliceTemplateStrings = (i: number, src: ReadonlyArray<string>, dst: string[]): void => {
   const srcEnd = src.length - 1
-  const dstEnd = i + src.length
+  const dstEnd = Math.min(dst.length - 1, i + src.length)
   dst[i] = dst[i] + src[0]
   dst.splice(i + 1, 0, ...src.slice(1, srcEnd))
-  if (dstEnd < dst.length) {
-    dst[dstEnd] = dst[dstEnd] + src[srcEnd]
+  if (dstEnd <= dst.length) {
+    dst[dstEnd] = src[srcEnd] + dst[dstEnd]
   }
 }
 
 //
 // Trivial string Dialect (unsafe! only for humans)
 //
-export const toUnsafeString = ({ strings, values }: SqlFragment<Compiled>): string =>
-  strings.slice(1).reduce((sql, s, i) =>`${sql}${values[i]}${s}`, strings[0])
+export const toUnsafeString = <L, V extends ReadonlyArray<any>> ({ strings, values }: Fragment<L, Prepared, V>): string =>
+  strings.slice(1).reduce((t, s, i) =>`${t}${values[i]}${s}`, strings[0])
+
+//
+// SQL
+//
+
+export type SQL = 'SQL'
+
+export const sql = t<SQL>()
 
 //
 // Postgres Dialect
 //
-type PostgresQuery = {
+type PostgresQuery<V> = {
   readonly text: string,
-  readonly values: ReadonlyArray<unknown>
+  readonly values: V
 }
 
-export const toPostgresQuery = ({ strings, values }: SqlFragment<Compiled>): PostgresQuery =>
+export const toPostgresQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, Prepared, V>): PostgresQuery<V> =>
   ({ text: joinWithPlaceholders(strings), values })
 
 const joinWithPlaceholders = (ss: ReadonlyArray<string>): string =>
@@ -81,10 +91,10 @@ const joinWithPlaceholders = (ss: ReadonlyArray<string>): string =>
 //
 // MySQL Dialect
 //
-type MySqlQuery = {
+type MySqlQuery<V> = {
   readonly sql: string,
-  readonly values: ReadonlyArray<unknown>
+  readonly values: V
 }
 
-export const toMySqlQuery = ({ strings, values }: SqlFragment<Compiled>): MySqlQuery =>
+export const toMySqlQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, Prepared, V>): MySqlQuery<V> =>
   ({ sql: strings.join('?'), values })
