@@ -1,10 +1,11 @@
+// Copied from https://github.com/briancavalier/litany
 export type Raw = 'raw'
 export type Prepared = 'prepared'
 
 // A Fragment represents a fragment of an expression in some
-// language L, in some state S (such as compiled or uncompiled),
+// language L, in some state S (such as compiled or uncompiled)
 // with parameters V.
-export class Fragment<L, S, V> {
+export class Fragment<L, V, S> {
   _language!: L
   _state!: S
   constructor (public readonly strings: ReadonlyArray<string>, public readonly values: V) {}
@@ -14,7 +15,7 @@ export class Fragment<L, S, V> {
 // can then be used to build Fragments in L:
 // const sql = t<SQL>()
 // const sqlFragment = sql`SELECT * FROM users`
-export const t = <L> (): (<V extends any[]> (strings: TemplateStringsArray, ...values: V) => Fragment<L, Raw, V>) =>
+export const t = <L> (): (<V extends unknown[]> (strings: TemplateStringsArray, ...values: V) => Fragment<L, V, Raw>) =>
   (strings, ...values) =>
     new Fragment(strings, values)
 
@@ -23,7 +24,9 @@ export const t = <L> (): (<V extends any[]> (strings: TemplateStringsArray, ...v
 // but they don't escape, so it's safe.
 // TODO: How to preserve type info so we don't end up with
 // unknown parameters?
-export const compile = <L, V extends any[]> (s: Fragment<L, Raw | Prepared, V>): Fragment<L, Prepared, ReadonlyArray<unknown>> => {
+function compile <L, V extends unknown[]> (s: Fragment<L, V, Prepared>): Fragment<L, V, Prepared>;
+function compile <L, V extends unknown[]> (s: Fragment<L, V, Raw>): Fragment<L, unknown[], Prepared>
+function compile <L, V extends unknown[]> (s: Fragment<L, V, Prepared | Raw>): Fragment<L, V | unknown[], Prepared> {
   const strings = s.strings.slice()
   const values = s.values.slice()
 
@@ -40,13 +43,16 @@ export const compile = <L, V extends any[]> (s: Fragment<L, Raw | Prepared, V>):
       vindex += cv.values.length
       sindex += cv.strings.length - 2
     } else {
+      values[vindex] = v
       vindex += 1
       sindex += 1
     }
   }
 
-  return new Fragment<L, Prepared, ReadonlyArray<unknown>>(strings, values)
+  return new Fragment(strings, values)
 }
+
+export { compile }
 
 // Splice (mutably) src array of template strings into dst,
 // joining the strings at the start and end splice points
@@ -82,7 +88,7 @@ type PostgresQuery<V> = {
   readonly values: V
 }
 
-export const toPostgresQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, Prepared, V>): PostgresQuery<V> =>
+export const toPostgresQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, V, Prepared>): PostgresQuery<V> =>
   ({ text: joinWithPlaceholders(strings), values })
 
 const joinWithPlaceholders = (ss: ReadonlyArray<string>): string =>
@@ -96,5 +102,5 @@ type MySqlQuery<V> = {
   readonly values: V
 }
 
-export const toMySqlQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, Prepared, V>): MySqlQuery<V> =>
+export const toMySqlQuery = <V extends ReadonlyArray<any>> ({ strings, values }: Fragment<SQL, V, Prepared>): MySqlQuery<V> =>
   ({ sql: strings.join('?'), values })
