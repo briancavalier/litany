@@ -7,7 +7,7 @@ export default {
   input: 'src/index.ts',
   plugins: [
     nodeResolve(),
-    ts({typescript })
+    ts({ typescript })
   ],
   output: [{
     file: pkg.module,
